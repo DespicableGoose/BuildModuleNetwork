@@ -6,17 +6,16 @@ from pyvis.network import Network
 import networkx as nx
 import pickle, os, shutil
 
+from makegraph import PageType
+
 def loadInformation():
     with open('build/dependencies-graph.pickle', 'rb') as f:
         usesRelationsMap: dict[str, list[str]] = pickle.load(f)
 
-    with open('build/datapages.pickle', 'rb') as f:
-        dataPages: list[str] = pickle.load(f)
+    with open('build/pagetypes.pickle', 'rb') as f:
+        pageTypes: dict[str, PageType] = pickle.load(f)
 
-    with open('build/externalpages.pickle', 'rb') as f:
-        externalPages: list[str] = pickle.load(f)
-
-    return usesRelationsMap, dataPages, externalPages
+    return usesRelationsMap, pageTypes
 
 def findUsedByRelations(usesRelationsMap: dict[str, list[str]]) -> dict[str, list[str]]:
     usedByRelationsMap: dict[str, list[str]] = {}
@@ -30,18 +29,18 @@ def findUsedByRelations(usesRelationsMap: dict[str, list[str]]) -> dict[str, lis
 
     return usedByRelationsMap
 
-def findNodeLevels(usesRelationsMap: dict[str, list[str]], externalPages: list[str]) -> dict[str, int]:
+def findNodeLevels(usesRelationsMap: dict[str, list[str]], pageTypes: dict[str, PageType]) -> dict[str, int]:
     nodeLevels: dict[str, int] = {}
 
-    def findLevel(node: str, visiting: set[str]):
+    def findLevel(node: str, visiting: set[str]) -> int:
         if node in nodeLevels:
             return nodeLevels[node]
         if node in visiting:
             raise ValueError(f"Cycle detected at node {node}: {' -> '.join(visiting)} -> {node}")
 
-        visiting.append(node)
+        visiting.add(node)
         try:
-            if node in externalPages:
+            if pageTypes[node] == "external":
                 level = -1 # External modules
             elif len(usesRelationsMap[node]) == 0:
                 level = 0 # Leaf nodes (no dependencies)
@@ -53,16 +52,16 @@ def findNodeLevels(usesRelationsMap: dict[str, list[str]], externalPages: list[s
             visiting.pop()
 
     for node in usesRelationsMap.keys():
-        findLevel(node, list())
+        findLevel(node, set())
 
     return nodeLevels
 
 def makeGraph():
-    usesRelationsMap, dataPages, externalPages = loadInformation()
+    usesRelationsMap, pageTypes = loadInformation()
 
     usedByRelationsMap = findUsedByRelations(usesRelationsMap)
 
-    nodeLevels: dict[str, int] = findNodeLevels(usesRelationsMap, externalPages)
+    nodeLevels: dict[str, int] = findNodeLevels(usesRelationsMap, pageTypes)
 
     # Build the graph
 
@@ -71,9 +70,22 @@ def makeGraph():
     # Add nodes
 
     for node in usesRelationsMap.keys():
-        group = 1 if node in dataPages else 2 if node in externalPages else 3
+        group = (
+                1 if pageTypes[node] == "data" else
+                2 if pageTypes[node] == "external" else
+                3 if pageTypes[node] == "module" else
+                4 if pageTypes[node] == "test" else
+                -1
+                )
+        typeName = (
+                "Data" if pageTypes[node] == "data" else
+                "External" if pageTypes[node] == "external" else
+                "Code" if pageTypes[node] == "module" else
+                "Test" if pageTypes[node] == "test" else
+                ""
+                )
         tooltip = f"Name: {node}"
-        tooltip += "\nType: " + ("External Module" if node in dataPages else "Data Module" if node in externalPages else "Module")
+        tooltip += "\nType: " + typeName
         tooltip += f"\nUses (Outdegree): {str(len(usesRelationsMap[node]))}"
         tooltip += f"\nUsed By (Indegree): {str(len(usedByRelationsMap[node]))}"
         tooltip += f"\nLevel: {nodeLevels[node]}"

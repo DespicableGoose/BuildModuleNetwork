@@ -7,20 +7,21 @@ import requests, re, sys
 # A common filter rule for pages
 # This is based on the wiki's convention
 # on testing modules
-def validPageFilterRule(page):
+def validPageFilterRule(page: str):
     return page.find("Sandbox") < 0 and \
         page.find("sandbox") < 0 and \
+        not page.endswith(".json") and \
         not "doc" in page.split("/") and \
         page.strip() != "" and \
         page.find("%") < 0
 
 # A common name standardization for pages
-def standardizeName(name):
+def standardizeName(name: str):
     name = name.replace("Module:", "").replace("_", " ").strip()
     return name if len(name) < 1 else name[0].upper() + name[1:]
 
 # Perform get request for the page list for one time
-def makePageListRequest(apcontinue, apnamespace):
+def makePageListRequest(apcontinue: str, apnamespace: int):
     payload = {
         "action": "query",
         "format": "json",
@@ -34,21 +35,20 @@ def makePageListRequest(apcontinue, apnamespace):
     try:
         resp = requests.get("https://hypixelskyblock.minecraft.wiki/api.php", params=payload)
         data = resp.json()
-        pageList = [page["title"] for page in data["query"]["allpages"]]
+        pageList: list[str] = [page["title"] for page in data["query"]["allpages"]]
     except Exception as e:
         print("Errored in requesting list from page: " + apcontinue)
         print(e)
-        print(resp)
         print("Exiting")
         sys.exit()
 
     return pageList
 
 # Make as many requests as needed to get a list of all pages in namespace
-def requestListOfAllPages(namesapceId, namespaceStr = ""):
+def requestListOfAllPages(namesapceId: int, namespaceStr: str = ""):
     apcontinue = ""
     tempList = makePageListRequest("", namesapceId)
-    pageList = [] + tempList
+    pageList = tempList.copy()
     while (len(tempList) > 1):
         apcontinue = tempList[-1].replace(" ", "_").replace(namespaceStr, "")
         tempList = makePageListRequest(apcontinue, namesapceId)
@@ -59,7 +59,7 @@ def requestListOfAllPages(namesapceId, namespaceStr = ""):
 
 # Perform get request for a page
 # Returns a tuple (content, isMissing)
-def makePageContentRequest(page):
+def makePageContentRequest(page: str):
     payload = {
         "action": "query",
         "format": "json",
@@ -76,11 +76,11 @@ def makePageContentRequest(page):
         if "missing" in data["query"]["pages"][0]:
             returnedContent = ("", True)
         else:
-            returnedContent = (data["query"]["pages"][0]["revisions"][0]["slots"]["main"]["content"], False)
+            content: str = data["query"]["pages"][0]["revisions"][0]["slots"]["main"]["content"]
+            returnedContent = (content, False)
     except Exception as e:
         print("Errored in requesting page: " + page)
         print(e)
-        print(data)
         print("Exiting")
         sys.exit()
 
@@ -114,16 +114,16 @@ importFormats = [
 ]
 
 # scan page, return all required modules
-# returns a tuple (normal_pages_detected, data_pages_detected, is_external_page)
-def findDependencies(page):
+# returns a tuple (normal_imports_detected, data_imports_detected, is_external_page)
+def findDependencies(page: str):
     page = page.replace("Module:", "")
 
     # Get page from API
     content, isMissing = makePageContentRequest("Module:" + page)
 
     # Search for all require/loadData calls in the content
-    callStrings = []
-    dataCallStrings = []
+    callStrings: list[str] = []
+    dataCallStrings: list[str] = []
 
     for line in content.split("\n"):
         is_comment = line.strip().startswith("--")
@@ -137,20 +137,20 @@ def findDependencies(page):
             dataCallStrings += re.findall(pattern, line)
 
     # Match the page names
-    pageNames = []
+    imports: list[str] = []
     for match in callStrings:
         for pattern in importFormats:
-            pageNames += re.findall(pattern, match)
+            imports += re.findall(pattern, match)
 
-    dataPageNames = []
+    dataImports: list[str] = []
     for match in dataCallStrings:
         for pattern in importFormats:
-            dataPageNames += re.findall(pattern, match)
+            dataImports += re.findall(pattern, match)
 
     # Return a list with all "Module:" removed, and then with all empty string removed
     return (
-        list(filter(validPageFilterRule, [standardizeName(name) for name in pageNames])),
-        list(filter(validPageFilterRule, [standardizeName(name) for name in dataPageNames])),
+        list(filter(validPageFilterRule, [standardizeName(name) for name in imports])),
+        list(filter(validPageFilterRule, [standardizeName(name) for name in dataImports])),
         isMissing,
     )
 

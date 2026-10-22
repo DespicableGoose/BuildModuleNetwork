@@ -1,8 +1,0 @@
-[
-    "Dev:Dialogue",
-    "FrameTools",
-    "Bit32",
-    "TableTools",
-    "Dev:Testharness",
-    "WP:Wikitable"
-]
